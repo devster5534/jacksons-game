@@ -47,6 +47,8 @@
     const FALL_DAMAGE=20, PUNCH_DAMAGE=10;
     const CPU_WALK_SPD=4.2, CPU_ATTACK_RNG=95, CPU_ATTACK_DUR=13, CPU_ATTACK_CD=18, CPU_DAMAGE=18;
     const INTRO_DURATION = 200;
+    const BULLET_SPD=11, BULLET_DMG=8, BULLET_W=14, BULLET_H=6;
+    const SHOOT_CD=38, CPU_SHOOT_CD=60, CPU_SHOOT_RNG=380;
 
     const PLATFORMS = [{ x:300,y:285,w:200 },{ x:50,y:375,w:700 }];
 
@@ -57,6 +59,7 @@
     let introTimer=0, screenShake=0, flashTimer=0;
     let damageNumbers=[], particles=[];
     const score = { player:0, cpu:0, streak:0 };
+    let playerBullets=[], cpuBullets=[], playerShootCd=0, cpuShootCd=0;
 
     const player = {
       x:175,y:375,vx:0,vy:0, onGround:false,facingRight:true,stepTimer:0,
@@ -446,6 +449,14 @@
         }
       }
       if(player.attackCooldown>0) player.attackCooldown--;
+
+      if((keys['x']||keys['X'])&&playerShootCd<=0&&!gameResult){
+        const bx=player.facingRight?player.x+32:player.x-32;
+        playerBullets.push({x:bx,y:player.y-60,vx:player.facingRight?BULLET_SPD:-BULLET_SPD});
+        spawnParticles(bx,player.y-60,['#fbbf24','#f59e0b','#fffbeb']);
+        playerShootCd=SHOOT_CD;
+      }
+      if(playerShootCd>0) playerShootCd--;
     }
 
     // ── CPU update ─────────────────────────────────────────────────────────────
@@ -491,6 +502,15 @@
       }
       if(cpu.attackCooldown>0) cpu.attackCooldown--;
 
+      const sDx=Math.abs(player.x-cpu.x);
+      if(!cpu.stunTimer&&!cpu.attacking&&sDx>CPU_ATTACK_RNG&&sDx<CPU_SHOOT_RNG&&cpuShootCd<=0){
+        const bx=cpu.facingRight?cpu.x+32:cpu.x-32;
+        cpuBullets.push({x:bx,y:cpu.y-60,vx:cpu.facingRight?BULLET_SPD:-BULLET_SPD});
+        spawnParticles(bx,cpu.y-60,['#ef4444','#fb923c','#fef2f2']);
+        cpuShootCd=CPU_SHOOT_CD;
+      }
+      if(cpuShootCd>0) cpuShootCd--;
+
       cpu.vx+=cpu.knockbackVX; cpu.knockbackVX*=0.82;
       if(Math.abs(cpu.knockbackVX)<0.2) cpu.knockbackVX=0;
       cpu.vy=Math.min(cpu.vy+GRAVITY,20);
@@ -506,9 +526,63 @@
       }
     }
 
+    // ── Bullets ────────────────────────────────────────────────────────────────
+    function updateBullets() {
+      playerBullets = playerBullets.filter(b => {
+        b.x += b.vx;
+        if(b.x<-20||b.x>820) return false;
+        if(b.x>cpu.x-22&&b.x<cpu.x+22&&b.y>cpu.y-125&&b.y<cpu.y+2){
+          cpu.health=Math.max(0,cpu.health-BULLET_DMG);
+          cpu.hitFlash=10; cpu.stunTimer=Math.max(cpu.stunTimer,6);
+          spawnDmg(cpu.x,cpu.y-130,BULLET_DMG,'#fbbf24');
+          spawnParticles(b.x,b.y,['#fbbf24','#f59e0b','#fff']);
+          screenShake=Math.max(screenShake,7);
+          if(cpu.health<=0&&!gameResult){gameResult='win';score.player++;score.streak++;}
+          return false;
+        }
+        return true;
+      });
+      cpuBullets = cpuBullets.filter(b => {
+        b.x += b.vx;
+        if(b.x<-20||b.x>820) return false;
+        if(b.x>player.x-22&&b.x<player.x+22&&b.y>player.y-125&&b.y<player.y+2){
+          player.health=Math.max(0,player.health-BULLET_DMG);
+          player.hitFlash=10;
+          spawnDmg(player.x,player.y-130,BULLET_DMG,'#ef4444');
+          spawnParticles(b.x,b.y,['#ef4444','#fb923c','#fff']);
+          screenShake=Math.max(screenShake,7);
+          if(player.health<=0&&!gameResult){gameResult='lose';score.cpu++;score.streak=0;}
+          return false;
+        }
+        return true;
+      });
+    }
+
+    function drawBullets() {
+      playerBullets.forEach(b=>{
+        ctx.save();
+        ctx.shadowColor='#f59e0b'; ctx.shadowBlur=10;
+        ctx.fillStyle='#fbbf24';
+        ctx.fillRect(b.x-BULLET_W/2,b.y-BULLET_H/2,BULLET_W,BULLET_H);
+        ctx.fillStyle='#fff';
+        ctx.fillRect(b.x-BULLET_W/4,b.y-BULLET_H/4,BULLET_W/2,BULLET_H/2);
+        ctx.restore();
+      });
+      cpuBullets.forEach(b=>{
+        ctx.save();
+        ctx.shadowColor='#ef4444'; ctx.shadowBlur=10;
+        ctx.fillStyle='#ef4444';
+        ctx.fillRect(b.x-BULLET_W/2,b.y-BULLET_H/2,BULLET_W,BULLET_H);
+        ctx.fillStyle='#fca5a5';
+        ctx.fillRect(b.x-BULLET_W/4,b.y-BULLET_H/4,BULLET_W/2,BULLET_H/2);
+        ctx.restore();
+      });
+    }
+
     // ── Transitions ────────────────────────────────────────────────────────────
     function resetFight() {
       gameResult=null; damageNumbers=[]; particles=[]; hitEffect=null; flashTimer=0;
+      playerBullets=[]; cpuBullets=[]; playerShootCd=0; cpuShootCd=0;
       introTimer=INTRO_DURATION;
       Object.assign(player,{x:175,y:375,vx:0,vy:0,onGround:true,facingRight:true,stepTimer:0,
         attacking:false,attackTimer:0,attackCooldown:0,hitLanded:false,health:100,hitFlash:0});
@@ -526,7 +600,7 @@
           introTimer--;
           if(introTimer===20) flashTimer=8;
         } else if(!gameResult){
-          updatePlayer(); updateCPU();
+          updatePlayer(); updateCPU(); updateBullets();
         }
         updateDmgNums(); updateParticles();
         render();
@@ -575,6 +649,7 @@
 
       drawHitEffect(hitEffect);
       drawParticles();
+      drawBullets();
       ctx.restore();  // end shake
 
       // UI (stable — no shake)
@@ -582,7 +657,7 @@
       drawHealthBars();
 
       ctx.fillStyle='rgba(255,255,255,0.22)';ctx.font='11px Courier New';ctx.textAlign='center';
-      ctx.fillText('← → Move   ↑/SPACE Jump   Z Attack',400,443);
+      ctx.fillText('← → Move   ↑/SPACE Jump   Z Punch   X Shoot',400,443);
       ctx.fillStyle='rgba(255,255,255,0.18)';ctx.textAlign='left';
       ctx.fillText('← MENU',10,440);
 
